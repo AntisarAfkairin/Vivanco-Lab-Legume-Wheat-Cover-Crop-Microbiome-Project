@@ -1,0 +1,346 @@
+---
+title: "P Uptake + N Uptake"
+author: "AA"
+date: "2026-08-12"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# P Uptake + N Uptake (# Anasazi vs CK Control)
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(car)
+library(multcompView)
+library(patchwork)
+
+```
+
+# read data
+
+```{r}
+d <- read.csv("../data/Uptake_P_N.csv") %>% 
+  filter(., Nuptake != "NA")
+
+d$Condition <- gsub("SR", "Shoot_Root", d$Condition)
+d$Condition <- gsub("CK", "Control",    d$Condition)
+d$Condition <- gsub("N",  "None",       d$Condition)
+d$Condition <- gsub("R",  "Root",       d$Condition)
+
+d$Density <- gsub("CK", "Control", d$Density)
+d$Density <- gsub("L",  "Low",     d$Density)
+d$Density <- gsub("H",  "High",    d$Density)
+
+d <- d %>%
+  mutate(Density = as_factor(Density)) %>%
+  mutate(Density = fct_relevel(Density, "Control", "Low", "High"))
+
+par(mfrow = c(2, 2))
+
+```
+
+# P Uptake and N Uptake
+
+```{r}
+d <- d %>%
+  mutate(
+    Species = trimws(as.character(Species)),
+    Condition = trimws(as.character(Condition)),
+    Density = trimws(as.character(Density)),
+    Species = case_when(
+      Species %in% c("An", "Anasazi") ~ "An",
+      Species == "CK" ~ "CK",
+      TRUE ~ Species),
+    Condition = recode(
+      Condition,
+      "CK" = "Control",
+      "Control" = "Control",
+      "N" = "None",
+      "None" = "None",
+      "R" = "Root",
+      "Root" = "Root",
+      "SR" = "Shoot_Root",
+      "Shoot_Root" = "Shoot_Root",
+      "Shoot_Rootoot" = "Shoot_Root",
+      .default = Condition),
+    Density = recode(
+      Density,
+      "CK" = "Control",
+      "Control" = "Control",
+      "L" = "Low",
+      "Low" = "Low",
+      "H" = "High",
+      "High" = "High",
+      .default = Density))
+
+# Check cleaned variables
+unique(d$Species)
+unique(d$Condition)
+unique(d$Density)
+
+# Treatment colors
+treatment_colors <- c(
+  "Control" = "darkorchid3",
+  "Anasazi_Low" = "firebrick1",
+  "Anasazi_High" = "firebrick4")
+
+# Function to create each reincorporation dataset
+make_dataset <- function(data, condition_name) {
+
+  ck <- data %>%
+    filter(Species == "CK", Condition == "Control") %>%
+    mutate(Treatment = "Control")
+
+  an <- data %>%
+    filter(Species == "An",
+           Condition == condition_name,
+           Density %in% c("Low", "High")) %>%
+    mutate(Treatment = case_when(
+      Density == "Low" ~ "Anasazi_Low",
+      Density == "High" ~ "Anasazi_High"))
+
+  bind_rows(ck, an) %>%
+    filter(!is.na(Treatment)) %>%
+    mutate(Treatment = factor(
+      Treatment,
+      levels = c("Control", "Anasazi_Low", "Anasazi_High")))
+}
+
+# Create the three condition datasets
+data_none <- make_dataset(d, "None")
+data_root <- make_dataset(d, "Root")
+data_shootroot <- make_dataset(d, "Shoot_Root")
+
+# Check sample numbers
+table(data_none$Treatment)
+table(data_root$Treatment)
+table(data_shootroot$Treatment)
+
+# Function for ANOVA, emmeans, FDR comparisons and summary
+analyze_uptake <- function(data, response, dataset_name = "") {
+
+  data_anova <- data %>%
+    filter(!is.na(.data[[response]])) %>%
+    mutate(Treatment = droplevels(Treatment))
+
+  cat("\n", dataset_name, "\n")
+  print(table(data_anova$Treatment))
+
+  # Model
+model <- lm(reformulate("Treatment", response = response),
+    data = data_anova)
+
+  # Model diagnostics
+  par(mfrow = c(2, 2))
+  plot(model)
+  par(mfrow = c(1, 1))
+
+  # ANOVA
+  print(car::Anova(model, type = 2))
+
+  # Estimated marginal means
+  emm <- emmeans::emmeans(model, ~ Treatment)
+  print(emm)
+
+  # Pairwise comparisons - FDR
+  pairs_fdr <- pairs(emm, adjust = "fdr")
+  print(pairs_fdr)
+
+  # Significance letters
+  groups <- data.frame(
+    multcomp::cld(
+      emm,
+      adjust = "fdr",
+      Letters = letters,
+      decreasing = TRUE)
+  ) %>%
+    select(Treatment, .group) %>%
+    rename(letter = .group) %>%
+    mutate(letter = gsub(" ", "", letter))
+
+  print(groups)
+
+  summary_df <- data_anova %>%
+    group_by(Treatment) %>%
+    summarise(
+      mean = mean(.data[[response]], na.rm = TRUE),
+      SD = sd(.data[[response]], na.rm = TRUE),
+      n = sum(!is.na(.data[[response]])),
+      se = SD / sqrt(n),
+      .groups = "drop") %>%
+    left_join(groups, by = "Treatment")
+
+  print(summary_df)
+
+  return(list(
+    model = model,
+    emm = emm,
+    pairs = pairs_fdr,
+    summary = summary_df))
+}
+
+# Common plotting function
+make_uptake_plot <- function(summary_df, title_text,
+                             y_label, y_max, y_break,
+                             letter_offset) {
+
+  ggplot(summary_df,
+         aes(x = Treatment, y = mean, fill = Treatment)) +
+    geom_col(width = 0.65) +
+    geom_errorbar(
+      aes(ymin = mean - se, ymax = mean + se),
+      width = 0.18,
+      linewidth = 0.7,
+      alpha = 1) +
+    geom_text(
+      aes(y = mean + se + letter_offset, label = letter),
+      size = 5.5,
+      fontface = "bold") +
+    scale_fill_manual(values = treatment_colors) +
+    scale_x_discrete(
+      labels = c(
+        "Control" = "Control",
+        "Anasazi_Low" = "Anasazi-\nLow",
+        "Anasazi_High" = "Anasazi-\nHigh")) +
+    scale_y_continuous(
+      breaks = seq(0, y_max, by = y_break),
+      expand = expansion(mult = c(0, 0.03))) +
+    coord_cartesian(
+      ylim = c(0, y_max + letter_offset * 1.5),
+      clip = "off") +
+    labs(
+      title = title_text,
+      y = y_label,
+      x = NULL) +
+    theme_classic() +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(
+        color = "black", size = 12, face = "bold"),
+      axis.text.y = element_text(
+        color = "black", size = 13, face = "bold"),
+      axis.title.y = element_text(
+        size = 14, face = "bold"),
+      plot.title = element_text(
+        size = 15, face = "bold", hjust = 0.5))
+}
+```
+
+
+# P UPTAKE - THREE CONDITIONS
+
+```{r}
+P_none <- analyze_uptake(
+  data_none, "P_uptake",
+  "No Reincorporation - P")
+
+P_root <- analyze_uptake(
+  data_root, "P_uptake",
+  "Root Reincorporation - P")
+
+P_shootroot <- analyze_uptake(
+  data_shootroot, "P_uptake",
+  "Shoot-Root Reincorporation - P")
+
+p_P_none <- make_uptake_plot(
+  P_none$summary,
+  "No Reincorporation",
+  "P Uptake (mg P)", 20, 5, 0.8)
+
+p_P_root <- make_uptake_plot(
+  P_root$summary,
+  "Root Reincorporation",
+  "P Uptake (mg P)", 20, 5, 0.8)
+
+p_P_shootroot <- make_uptake_plot(
+  P_shootroot$summary,
+  "Shoot-Root Reincorporation",
+  "P Uptake (mg P)", 20, 5, 0.8)
+
+# Combine P uptake panels
+P_uptake_figure <- patchwork::wrap_plots(
+  p_P_none,
+  p_P_root,
+  p_P_shootroot,
+  ncol = 3)
+
+P_uptake_figure
+```
+
+# N UPTAKE - THREE CONDITIONS
+
+```{r}
+N_none <- analyze_uptake(
+  data_none, "Nuptake",
+  "No Reincorporation - N")
+
+N_root <- analyze_uptake(
+  data_root, "Nuptake",
+  "Root Reincorporation - N")
+
+N_shootroot <- analyze_uptake(
+  data_shootroot, "Nuptake",
+  "Shoot-Root Reincorporation - N")
+
+p_N_none <- make_uptake_plot(
+  N_none$summary,
+  "No Reincorporation",
+  "N Uptake (mg N)", 88, 10, 4)
+
+p_N_root <- make_uptake_plot(
+  N_root$summary,
+  "Root Reincorporation",
+  "N Uptake (mg N)", 88, 10, 4)
+
+p_N_shootroot <- make_uptake_plot(
+  N_shootroot$summary,
+  "Shoot-Root Reincorporation",
+  "N Uptake (mg N)", 88, 10, 4)
+```
+
+
+```{r}
+# Combine N uptake panels
+N_uptake_figure <- patchwork::wrap_plots(
+  p_N_none,
+  p_N_root,
+  p_N_shootroot,
+  ncol = 3)
+
+N_uptake_figure
+
+# COMBINE P AND N UPTAKE
+
+final_uptake_figure <- patchwork::wrap_plots(
+  p_P_none,
+  p_P_root,
+  p_P_shootroot,
+  p_N_none,
+  p_N_root,
+  p_N_shootroot,
+  ncol = 3,
+  nrow = 2) +
+  patchwork::plot_annotation(tag_levels = "A")
+
+final_uptake_figure
+
+
+# Save P uptake figure
+ggsave("figs/P_uptake.png",
+       plot = P_uptake_figure,
+       width = 12, height = 5, dpi = 600)
+
+# Save N uptake figure
+ggsave("figs/N_uptake.png",
+       plot = N_uptake_figure,
+       width = 12, height = 5, dpi = 600)
+
+# Save combined P + N uptake figure
+ggsave("figs/Nutrient_uptake_final.png",
+       plot = final_uptake_figure,
+       width = 12, height = 10, dpi = 600)
+```
+

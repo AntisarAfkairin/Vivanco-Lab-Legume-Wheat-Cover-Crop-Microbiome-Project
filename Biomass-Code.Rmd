@@ -1,0 +1,730 @@
+---
+title: "Biomass (Shoot+Root)"
+author: "AA&MM"
+date: "2026-09-24"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Read in data and load libraries 
+```{r}
+library(car)
+library(tidyverse)
+library(emmeans)
+library(agricolae)
+library(RColorBrewer)
+library(patchwork)
+library(ggplot2)
+```
+
+```{r}
+d <- read.csv("../data/LegacyDryWeights2025.csv") %>% 
+  filter(., Shoot_g != "NA")
+d$Reinc <- gsub("CK", "N", d$Reinc)
+d$Density <- gsub("L", "Low", d$Density)
+d$Density <- gsub("M", "Medium", d$Density)
+d$Density <- gsub("H", "High", d$Density)
+d$Reinc <- gsub("N", "None", d$Reinc)
+d$Reinc <- gsub("R", "Root", d$Reinc)
+d$Reinc <- gsub("S", "Shoot_", d$Reinc)
+
+d <- d %>%
+mutate(Density = as_factor(Density)) %>%
+mutate(Density = fct_relevel(Density, "CK", "Low", "Medium", "High"))
+par(mfrow=c(2,2))
+
+# Check reincorporation groups
+unique(d$Reinc)
+
+# Check number of observations in each group
+table(d$Reinc)
+
+# Check treatments within each reincorporation group
+table(d$Reinc, d$Legume_Var, d$Density)
+
+```
+
+# NO REINCORPORATION
+
+```{r}
+
+d.none <- d %>%
+  filter(Reinc == "None") %>%
+  mutate(Var_Density = paste(Legume_Var, Density, sep = "_"),
+         Var_Density = factor(Var_Density,
+           levels = c("CK_CK",
+                      "An_Low", "An_Medium", "An_High",
+                      "Cal_Low", "Cal_Medium", "Cal_High",
+                      "Va_Low", "Va_Medium", "Va_High")))
+
+table(d.none$Var_Density)
+
+# Model
+mod.none <- lm(Shoot_g ~ Var_Density, data = d.none)
+
+# Model diagnostics
+par(mfrow = c(2, 2))
+plot(mod.none)
+par(mfrow = c(1, 1))
+
+# ANOVA
+car::Anova(mod.none, type = 2)
+
+# Estimated marginal means
+emm.none <- emmeans::emmeans(mod.none, ~ Var_Density)
+print(emm.none)
+
+# Pairwise comparisons - FDR
+pairs.none <- pairs(emm.none, adjust = "fdr")
+print(pairs.none)
+
+# Significance letters
+groups.none <- data.frame(
+  multcomp::cld(emm.none, adjust = "fdr",
+                Letters = letters, decreasing = TRUE)
+) %>%
+  select(Var_Density, .group) %>%
+  rename(letters = .group) %>%
+  mutate(letters = gsub(" ", "", letters))
+
+print(groups.none)
+
+# Mean, SD and SE
+df.none <- d.none %>%
+  group_by(Var_Density) %>%
+  summarise(response = mean(Shoot_g, na.rm = TRUE),
+            SD = sd(Shoot_g, na.rm = TRUE),
+            n = sum(!is.na(Shoot_g)),
+            SE = SD / sqrt(n),
+            .groups = "drop") %>%
+  left_join(groups.none, by = "Var_Density")
+
+print(df.none[, c("Var_Density", "n", "response", "SE", "letters")])
+
+# Figure
+p_none <- ggplot(df.none,
+  aes(x = Var_Density, y = response, fill = Var_Density)) +
+  geom_col(width = 0.9) +
+  geom_errorbar(aes(ymin = response - SE, ymax = response + SE),
+                width = 0.25, linewidth = 0.8, alpha = 1) +
+  geom_text(aes(y = response + SE + 0.40, label = letters),
+            size = 6, fontface = "bold") +
+  geom_vline(xintercept = 1.5, color = "gray60") +
+  scale_fill_manual(
+    values = c("CK_CK" = "darkorchid3",
+               "An_Low" = "firebrick1",
+               "An_Medium" = "firebrick3",
+               "An_High" = "firebrick4",
+               "Cal_Low" = "goldenrod1",
+               "Cal_Medium" = "goldenrod",
+               "Cal_High" = "goldenrod4",
+               "Va_Low" = "deepskyblue",
+               "Va_Medium" = "deepskyblue3",
+               "Va_High" = "darkblue"),
+    drop = FALSE) +
+  scale_x_discrete(
+    drop = FALSE,
+    labels = c("CK_CK" = "Control",
+               "An_Low" = "Anasazi Low",
+               "An_Medium" = "Anasazi Medium",
+               "An_High" = "Anasazi High",
+               "Cal_Low" = "California-5 Low",
+               "Cal_Medium" = "California-5 Medium",
+               "Cal_High" = "California-5 High",
+               "Va_Low" = "Vail Low",
+               "Va_Medium" = "Vail Medium",
+               "Va_High" = "Vail High")) +
+  scale_y_continuous(breaks = c(0, 2, 4, 6, 8),
+                     expand = expansion(mult = c(0, 0.02))) +
+  coord_cartesian(ylim = c(0, 8)) +
+  labs(x = NULL, y = "Shoot Biomass (g)") +
+  ggtitle("No Reincorporation") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(color = "black", size = 14, face = "bold"),
+        axis.title.y = element_text(size = 14, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold"))
+
+p_none
+```
+
+
+# ROOT REINCORPORATION
+
+```{r}
+d.root <- d %>%
+  filter(Reinc == "Root" |
+           (Legume_Var == "CK" & Density == "CK")) %>%
+  mutate(Var_Density = paste(Legume_Var, Density, sep = "_"),
+         Var_Density = factor(Var_Density,
+           levels = c("CK_CK",
+                      "An_Low", "An_Medium", "An_High",
+                      "Cal_Low", "Cal_Medium", "Cal_High",
+                      "Va_Low", "Va_Medium", "Va_High")))
+
+table(d.root$Var_Density)
+
+# Model
+mod.root <- lm(Shoot_g ~ Var_Density, data = d.root)
+
+# Model diagnostics
+par(mfrow = c(2, 2))
+plot(mod.root)
+par(mfrow = c(1, 1))
+
+# ANOVA
+car::Anova(mod.root, type = 2)
+
+# Estimated marginal means
+emm.root <- emmeans::emmeans(mod.root, ~ Var_Density)
+print(emm.root)
+
+# Pairwise comparisons - FDR
+pairs.root <- pairs(emm.root, adjust = "fdr")
+print(pairs.root)
+
+# Significance letters
+groups.root <- data.frame(
+  multcomp::cld(emm.root, adjust = "fdr",
+                Letters = letters, decreasing = TRUE)
+) %>%
+  select(Var_Density, .group) %>%
+  rename(letters = .group) %>%
+  mutate(letters = gsub(" ", "", letters))
+
+print(groups.root)
+
+# Mean, SD and SE
+df.root <- d.root %>%
+  group_by(Var_Density) %>%
+  summarise(response = mean(Shoot_g, na.rm = TRUE),
+            SD = sd(Shoot_g, na.rm = TRUE),
+            n = sum(!is.na(Shoot_g)),
+            SE = SD / sqrt(n),
+            .groups = "drop") %>%
+  left_join(groups.root, by = "Var_Density")
+
+print(df.root[, c("Var_Density", "n", "response", "SE", "letters")])
+
+# Figure
+p_root <- ggplot(df.root,
+  aes(x = Var_Density, y = response, fill = Var_Density)) +
+  geom_col(width = 0.9) +
+  geom_errorbar(aes(ymin = response - SE, ymax = response + SE),
+                width = 0.25, linewidth = 0.8, alpha = 1) +
+  geom_text(aes(y = response + SE + 0.40, label = letters),
+            size = 6, fontface = "bold") +
+  geom_vline(xintercept = 1.5, color = "gray60") +
+  scale_fill_manual(
+    values = c("CK_CK" = "darkorchid3",
+               "An_Low" = "firebrick1",
+               "An_Medium" = "firebrick3",
+               "An_High" = "firebrick4",
+               "Cal_Low" = "goldenrod1",
+               "Cal_Medium" = "goldenrod",
+               "Cal_High" = "goldenrod4",
+               "Va_Low" = "deepskyblue",
+               "Va_Medium" = "deepskyblue3",
+               "Va_High" = "darkblue"),
+    drop = FALSE) +
+  scale_x_discrete(
+    drop = FALSE,
+    labels = c("CK_CK" = "Control",
+               "An_Low" = "Anasazi Low",
+               "An_Medium" = "Anasazi Medium",
+               "An_High" = "Anasazi High",
+               "Cal_Low" = "California-5 Low",
+               "Cal_Medium" = "California-5 Medium",
+               "Cal_High" = "California-5 High",
+               "Va_Low" = "Vail Low",
+               "Va_Medium" = "Vail Medium",
+               "Va_High" = "Vail High")) +
+  scale_y_continuous(breaks = c(0, 2, 4, 6, 8),
+                     expand = expansion(mult = c(0, 0.02))) +
+  coord_cartesian(ylim = c(0, 8)) +
+  labs(x = NULL, y = "Shoot Biomass (g)") +
+  ggtitle("Root Reincorporation") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(color = "black", size = 14, face = "bold"),
+        axis.title.y = element_text(size = 14, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold"))
+
+p_root
+```
+
+
+# SHOOT BIOMASS ANALYSIS: SHOOT-ROOT REINCORPORATION
+
+```{r}
+
+d.sr <- d %>%
+  filter(Reinc == "Shoot_Root" | (Legume_Var == "CK" & Density == "CK")) %>%
+  mutate(Var_Density = paste(Legume_Var, Density, sep = "_"),
+         Var_Density = factor(Var_Density,
+           levels = c("CK_CK",
+                      "An_Low", "An_Medium", "An_High",
+                      "Cal_Low", "Cal_Medium", "Cal_High",
+                      "Va_Low", "Va_Medium", "Va_High")))
+
+# Check observations per treatment
+table(d.sr$Var_Density)
+
+# 2. Statistical model
+mod.sr <- lm(Shoot_g ~ Var_Density, data = d.sr)
+
+# 3. Model diagnostics
+par(mfrow = c(2, 2))
+plot(mod.sr)
+par(mfrow = c(1, 1))
+
+# 4. ANOVA
+car::Anova(mod.sr, type = 2)
+
+# 5. Estimated marginal means
+emm.sr <- emmeans::emmeans(mod.sr, ~ Var_Density)
+print(emm.sr)
+
+# 6. Pairwise comparisons (FDR adjustment)
+pairs.sr <- pairs(emm.sr, adjust = "fdr")
+print(pairs.sr)
+
+# 7. Significance letters
+groups.sr <- data.frame(
+  multcomp::cld(emm.sr, adjust = "fdr",
+                 Letters = letters, decreasing = TRUE)
+) %>%
+  select(Var_Density, .group) %>%
+  rename(letters = .group) %>%
+  mutate(letters = gsub(" ", "", letters))
+
+print(groups.sr)
+
+# 8. Mean, SD and SE for figure
+df.sr <- d.sr %>%
+  group_by(Var_Density) %>%
+  summarise(response = mean(Shoot_g, na.rm = TRUE),
+            SD = sd(Shoot_g, na.rm = TRUE),
+            n = sum(!is.na(Shoot_g)),
+            SE = SD / sqrt(n),
+            .groups = "drop") %>%
+  left_join(groups.sr, by = "Var_Density")
+
+# Check figure values
+print(df.sr[, c("Var_Density", "n", "response", "SE", "letters")])
+
+# 9. Figure
+p_sr <- ggplot(df.sr,
+  aes(x = Var_Density, y = response, fill = Var_Density)) +
+  geom_col(width = 0.9) +
+  geom_errorbar(aes(ymin = response - SE, ymax = response + SE),
+                width = 0.25, linewidth = 0.8, alpha = 1) +
+  geom_text(aes(y = response + SE + 0.40, label = letters),
+            size = 6, fontface = "bold") +
+  geom_vline(xintercept = 1.5, color = "gray60") +
+  scale_fill_manual(
+    values = c("CK_CK" = "darkorchid3",
+               "An_Low" = "firebrick1",
+               "An_Medium" = "firebrick3",
+               "An_High" = "firebrick4",
+               "Cal_Low" = "goldenrod1",
+               "Cal_Medium" = "goldenrod",
+               "Cal_High" = "goldenrod4",
+               "Va_Low" = "deepskyblue",
+               "Va_Medium" = "deepskyblue3",
+               "Va_High" = "darkblue"),
+    drop = FALSE) +
+  scale_x_discrete(
+    drop = FALSE,
+    labels = c("CK_CK" = "Control",
+               "An_Low" = "Anasazi Low",
+               "An_Medium" = "Anasazi Medium",
+               "An_High" = "Anasazi High",
+               "Cal_Low" = "California-5 Low",
+               "Cal_Medium" = "California-5 Medium",
+               "Cal_High" = "California-5 High",
+               "Va_Low" = "Vail Low",
+               "Va_Medium" = "Vail Medium",
+               "Va_High" = "Vail High")) +
+  scale_y_continuous(breaks = c(0, 2, 4, 6, 8),
+                     expand = expansion(mult = c(0, 0.02))) +
+  coord_cartesian(ylim = c(0, 8)) +
+  labs(x = NULL, y = "Shoot Biomass (g)") +
+  ggtitle("Shoot-Root Reincorporation") +
+  theme_classic() +
+  theme(legend.title = element_blank(),
+        legend.position = "none",
+        axis.text.x = element_text(color = "black", size = 14,
+                                   face = "bold", angle = 90, hjust = 1),
+        axis.text.y = element_text(color = "black", size = 14,
+                                   face = "bold"),
+        axis.title.y = element_text(size = 14, face = "bold"),
+        axis.title.x = element_blank(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+# Display figure
+p_sr
+```
+
+# Combine the three panels
+
+```{r}
+p_shoot <- (p_none / p_root / p_sr) +
+  plot_layout(
+    guides = "collect",
+    axes = "collect"
+  )
+
+# Show figure
+p_shoot
+
+# Save figure
+ggsave(filename = "figs/shoot2.png", plot = p_shoot, width = 10, height = 12,dpi = 600)
+```
+
+
+# ROOT BIOMASS 
+
+## NO REINCORPORATION-ROOT
+
+```{r}
+
+d.none.root <- d %>%
+  filter(Reinc == "None") %>%
+  mutate(Var_Density = paste(Legume_Var, Density, sep = "_"),
+         Var_Density = factor(Var_Density,
+           levels = c("CK_CK",
+                      "An_Low", "An_Medium", "An_High",
+                      "Cal_Low", "Cal_Medium", "Cal_High",
+                      "Va_Low", "Va_Medium", "Va_High")))
+
+table(d.none.root$Var_Density)
+
+# Model
+mod.none.root <- lm(Root_g ~ Var_Density, data = d.none.root)
+
+# Model diagnostics
+par(mfrow = c(2, 2))
+plot(mod.none.root)
+par(mfrow = c(1, 1))
+
+# ANOVA
+car::Anova(mod.none.root, type = 2)
+
+# Estimated marginal means
+emm.none.root <- emmeans::emmeans(mod.none.root, ~ Var_Density)
+print(emm.none.root)
+
+# Pairwise comparisons - FDR
+pairs.none.root <- pairs(emm.none.root, adjust = "fdr")
+print(pairs.none.root)
+
+# Significance letters
+groups.none.root <- data.frame(
+  multcomp::cld(emm.none.root, adjust = "fdr",
+                Letters = letters, decreasing = TRUE)
+) %>%
+  select(Var_Density, .group) %>%
+  rename(letters = .group) %>%
+  mutate(letters = gsub(" ", "", letters))
+
+print(groups.none.root)
+
+# Mean, SD and SE
+df.none.root <- d.none.root %>%
+  group_by(Var_Density) %>%
+  summarise(response = mean(Root_g, na.rm = TRUE),
+            SD = sd(Root_g, na.rm = TRUE),
+            n = sum(!is.na(Root_g)),
+            SE = SD / sqrt(n),
+            .groups = "drop") %>%
+  left_join(groups.none.root, by = "Var_Density")
+
+print(df.none.root[, c("Var_Density", "n", "response", "SE", "letters")])
+
+# Figure
+p_none_root <- ggplot(df.none.root,
+  aes(x = Var_Density, y = response, fill = Var_Density)) +
+  geom_col(width = 0.9) +
+  geom_errorbar(aes(ymin = response - SE, ymax = response + SE),
+                width = 0.25, linewidth = 0.8, alpha = 1) +
+  geom_text(aes(y = response + SE + 0.70, label = letters),
+            size = 6, fontface = "bold") +
+  geom_vline(xintercept = 1.5, color = "gray60") +
+  scale_fill_manual(
+    values = c("CK_CK" = "darkorchid3",
+               "An_Low" = "firebrick1",
+               "An_Medium" = "firebrick3",
+               "An_High" = "firebrick4",
+               "Cal_Low" = "goldenrod1",
+               "Cal_Medium" = "goldenrod",
+               "Cal_High" = "goldenrod4",
+               "Va_Low" = "deepskyblue",
+               "Va_Medium" = "deepskyblue3",
+               "Va_High" = "darkblue"),
+    drop = FALSE) +
+  scale_x_discrete(
+    drop = FALSE,
+    labels = c("CK_CK" = "Control",
+               "An_Low" = "Anasazi Low",
+               "An_Medium" = "Anasazi Medium",
+               "An_High" = "Anasazi High",
+               "Cal_Low" = "California-5 Low",
+               "Cal_Medium" = "California-5 Medium",
+               "Cal_High" = "California-5 High",
+               "Va_Low" = "Vail Low",
+               "Va_Medium" = "Vail Medium",
+               "Va_High" = "Vail High")) +
+  scale_y_continuous(breaks = c(0, 2, 4, 6, 8, 10),
+                     expand = expansion(mult = c(0, 0.02))) +
+  coord_cartesian(ylim = c(0, 10)) +
+  labs(x = NULL, y = "Root Biomass (g)") +
+  ggtitle("No Reincorporation") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(color = "black", size = 14, face = "bold"),
+        axis.title.y = element_text(size = 14, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold"))
+
+p_none_root
+```
+
+# ROOT REINCORPORATION-ROOT
+
+```{r}
+
+
+d.root.root <- d %>%
+  filter(Reinc == "Root" |
+           (Legume_Var == "CK" & Density == "CK")) %>%
+  mutate(Var_Density = paste(Legume_Var, Density, sep = "_"),
+         Var_Density = factor(Var_Density,
+           levels = c("CK_CK",
+                      "An_Low", "An_Medium", "An_High",
+                      "Cal_Low", "Cal_Medium", "Cal_High",
+                      "Va_Low", "Va_Medium", "Va_High")))
+
+table(d.root.root$Var_Density)
+
+# Model
+mod.root.root <- lm(Root_g ~ Var_Density, data = d.root.root)
+
+# Model diagnostics
+par(mfrow = c(2, 2))
+plot(mod.root.root)
+par(mfrow = c(1, 1))
+
+# ANOVA
+car::Anova(mod.root.root, type = 2)
+
+# Estimated marginal means
+emm.root.root <- emmeans::emmeans(mod.root.root, ~ Var_Density)
+print(emm.root.root)
+
+# Pairwise comparisons - FDR
+pairs.root.root <- pairs(emm.root.root, adjust = "fdr")
+print(pairs.root.root)
+
+# Significance letters
+groups.root.root <- data.frame(
+  multcomp::cld(emm.root.root, adjust = "fdr",
+                Letters = letters, decreasing = TRUE)
+) %>%
+  select(Var_Density, .group) %>%
+  rename(letters = .group) %>%
+  mutate(letters = gsub(" ", "", letters))
+
+print(groups.root.root)
+
+# Mean, SD and SE
+df.root.root <- d.root.root %>%
+  group_by(Var_Density) %>%
+  summarise(response = mean(Root_g, na.rm = TRUE),
+            SD = sd(Root_g, na.rm = TRUE),
+            n = sum(!is.na(Root_g)),
+            SE = SD / sqrt(n),
+            .groups = "drop") %>%
+  left_join(groups.root.root, by = "Var_Density")
+
+print(df.root.root[, c("Var_Density", "n", "response", "SE", "letters")])
+
+# Figure
+p_root_root <- ggplot(df.root.root,
+  aes(x = Var_Density, y = response, fill = Var_Density)) +
+  geom_col(width = 0.9) +
+  geom_errorbar(aes(ymin = response - SE, ymax = response + SE),
+                width = 0.25, linewidth = 0.8, alpha = 1) +
+  geom_text(aes(y = response + SE + 0.70, label = letters),
+            size = 6, fontface = "bold") +
+  geom_vline(xintercept = 1.5, color = "gray60") +
+  scale_fill_manual(
+    values = c("CK_CK" = "darkorchid3",
+               "An_Low" = "firebrick1",
+               "An_Medium" = "firebrick3",
+               "An_High" = "firebrick4",
+               "Cal_Low" = "goldenrod1",
+               "Cal_Medium" = "goldenrod",
+               "Cal_High" = "goldenrod4",
+               "Va_Low" = "deepskyblue",
+               "Va_Medium" = "deepskyblue3",
+               "Va_High" = "darkblue"),
+    drop = FALSE) +
+  scale_x_discrete(
+    drop = FALSE,
+    labels = c("CK_CK" = "Control",
+               "An_Low" = "Anasazi Low",
+               "An_Medium" = "Anasazi Medium",
+               "An_High" = "Anasazi High",
+               "Cal_Low" = "California-5 Low",
+               "Cal_Medium" = "California-5 Medium",
+               "Cal_High" = "California-5 High",
+               "Va_Low" = "Vail Low",
+               "Va_Medium" = "Vail Medium",
+               "Va_High" = "Vail High")) +
+  scale_y_continuous(breaks = c(0, 2, 4, 6, 8, 10),
+                     expand = expansion(mult = c(0, 0.02))) +
+  coord_cartesian(ylim = c(0, 10)) +
+  labs(x = NULL, y = "Root Biomass (g)") +
+  ggtitle("Root Reincorporation") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(color = "black", size = 14, face = "bold"),
+        axis.title.y = element_text(size = 14, face = "bold"),
+        plot.title = element_text(size = 14, face = "bold"))
+
+p_root_root
+```
+
+# SHOOT-ROOT REINCORPORATION
+
+
+```{r}
+
+d.sr.root <- d %>%
+  filter(Reinc == "Shoot_Root" |
+           (Legume_Var == "CK" & Density == "CK")) %>%
+  mutate(Var_Density = paste(Legume_Var, Density, sep = "_"),
+         Var_Density = factor(Var_Density,
+           levels = c("CK_CK",
+                      "An_Low", "An_Medium", "An_High",
+                      "Cal_Low", "Cal_Medium", "Cal_High",
+                      "Va_Low", "Va_Medium", "Va_High")))
+
+table(d.sr.root$Var_Density)
+
+# Model
+mod.sr.root <- lm(Root_g ~ Var_Density, data = d.sr.root)
+
+# Model diagnostics
+par(mfrow = c(2, 2))
+plot(mod.sr.root)
+par(mfrow = c(1, 1))
+
+# ANOVA
+car::Anova(mod.sr.root, type = 2)
+
+# Estimated marginal means
+emm.sr.root <- emmeans::emmeans(mod.sr.root, ~ Var_Density)
+print(emm.sr.root)
+
+# Pairwise comparisons - FDR
+pairs.sr.root <- pairs(emm.sr.root, adjust = "fdr")
+print(pairs.sr.root)
+
+# Significance letters
+groups.sr.root <- data.frame(
+  multcomp::cld(emm.sr.root, adjust = "fdr",
+                Letters = letters, decreasing = TRUE)
+) %>%
+  select(Var_Density, .group) %>%
+  rename(letters = .group) %>%
+  mutate(letters = gsub(" ", "", letters))
+
+print(groups.sr.root)
+
+# Mean, SD and SE
+df.sr.root <- d.sr.root %>%
+  group_by(Var_Density) %>%
+  summarise(response = mean(Root_g, na.rm = TRUE),
+            SD = sd(Root_g, na.rm = TRUE),
+            n = sum(!is.na(Root_g)),
+            SE = SD / sqrt(n),
+            .groups = "drop") %>%
+  left_join(groups.sr.root, by = "Var_Density")
+
+print(df.sr.root[, c("Var_Density", "n", "response", "SE", "letters")])
+
+# Figure
+p_sr_root <- ggplot(df.sr.root,
+  aes(x = Var_Density, y = response, fill = Var_Density)) +
+  geom_col(width = 0.9) +
+  geom_errorbar(aes(ymin = response - SE, ymax = response + SE),
+                width = 0.25, linewidth = 0.8, alpha = 1) +
+  geom_text(aes(y = response + SE + 0.70, label = letters),
+            size = 6, fontface = "bold") +
+  geom_vline(xintercept = 1.5, color = "gray60") +
+  scale_fill_manual(
+    values = c("CK_CK" = "darkorchid3",
+               "An_Low" = "firebrick1",
+               "An_Medium" = "firebrick3",
+               "An_High" = "firebrick4",
+               "Cal_Low" = "goldenrod1",
+               "Cal_Medium" = "goldenrod",
+               "Cal_High" = "goldenrod4",
+               "Va_Low" = "deepskyblue",
+               "Va_Medium" = "deepskyblue3",
+               "Va_High" = "darkblue"),
+    drop = FALSE) +
+  scale_x_discrete(
+    drop = FALSE,
+    labels = c("CK_CK" = "Control",
+               "An_Low" = "Anasazi Low",
+               "An_Medium" = "Anasazi Medium",
+               "An_High" = "Anasazi High",
+               "Cal_Low" = "California-5 Low",
+               "Cal_Medium" = "California-5 Medium",
+               "Cal_High" = "California-5 High",
+               "Va_Low" = "Vail Low",
+               "Va_Medium" = "Vail Medium",
+               "Va_High" = "Vail High")) +
+  scale_y_continuous(breaks = c(0, 2, 4, 6, 8, 10),
+                     expand = expansion(mult = c(0, 0.02))) +
+  coord_cartesian(ylim = c(0, 10)) +
+  labs(x = NULL, y = "Root Biomass (g)") +
+  ggtitle("Shoot-Root Reincorporation") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(color = "black", size = 14,
+                                   face = "bold", angle = 90, hjust = 1),
+        axis.text.y = element_text(color = "black", size = 14, face = "bold"),
+        axis.title.y = element_text(size = 14, face = "bold"),
+        axis.title.x = element_blank(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+p_sr_root
+```
+
+
+```{r}
+# Combine Root Biomass panels
+p_root_biomass <- (p_none_root / p_root_root / p_sr_root) +
+  patchwork::plot_layout(guides = "collect", axes = "collect")
+
+p_root_biomass
+
+# Save high-resolution figure
+ggsave(filename = "figs/root_biomassFinal.png",
+       plot = p_root_biomass,
+       width = 10, height = 12, dpi = 600)
+```
+

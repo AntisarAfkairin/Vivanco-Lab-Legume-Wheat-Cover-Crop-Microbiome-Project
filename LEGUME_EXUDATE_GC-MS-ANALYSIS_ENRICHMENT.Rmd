@@ -1,0 +1,1002 @@
+---
+title: "LEGUME_EXUDATE_GC-MS&ENRICHMENT FIGURES-EXUDATA"
+author: "AA"
+date: "2026-09-10"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# GC-MS LEGUME ROOT EXUDATE ANALYSIS
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+library(mixOmics)
+library(DescTools)
+library(grid)
+```
+
+# 2. Import and prepare data
+
+```{r}
+df <- read.csv("Ex_data2.csv", check.names = FALSE)
+
+metabolite_info <- data.frame(
+  Metabolite = colnames(df)[-1],
+  Main_class = as.character(df[1, -1]),
+  Sub_class = as.character(df[2, -1])
+)
+
+metabolite_info$Main_class[
+  is.na(metabolite_info$Main_class) |
+    metabolite_info$Main_class == "NA"
+] <- "Unclassified"
+
+metabolite_info$Sub_class[
+  is.na(metabolite_info$Sub_class) |
+    metabolite_info$Sub_class == "NA"
+] <- "Unclassified"
+
+abundance <- df[-c(1, 2), ]
+rownames(abundance) <- abundance[, 1]
+abundance <- abundance[, -1]
+abundance[] <- lapply(abundance, as.numeric)
+
+sample_info <- data.frame(
+  Sample = rownames(abundance),
+  Group = c(
+    "Bean", "Bean", "Bean",
+    "Cowpea", "Cowpea", "Cowpea",
+    "Pea", "Pea", "Pea"
+  )
+)
+
+sample_info$Variety <- dplyr::recode(
+  sample_info$Group,
+  Bean = "Anasazi",
+  Cowpea = "California5",
+  Pea = "Vail"
+)
+```
+
+# 3. Normalization and log2 transformation
+
+```{r}
+sample_medians <- apply(
+  abundance,
+  1,
+  median,
+  na.rm = TRUE
+)
+
+global_median <- median(
+  sample_medians,
+  na.rm = TRUE
+)
+
+abundance_norm <- sweep(
+  abundance,
+  1,
+  sample_medians,
+  "/"
+) * global_median
+
+abundance_log2 <- log2(
+  abundance_norm + 1
+)
+```
+
+# 4. G-test
+
+```{r}
+g_test_results <- lapply(
+  colnames(abundance),
+  function(met) {
+
+    detected <- abundance[[met]] > 0
+
+    tab <- table(
+      Group = sample_info$Group,
+      Detected = detected
+    )
+
+    bean_detected <- sum(
+      detected[sample_info$Group == "Bean"]
+    )
+
+    cowpea_detected <- sum(
+      detected[sample_info$Group == "Cowpea"]
+    )
+
+    pea_detected <- sum(
+      detected[sample_info$Group == "Pea"]
+    )
+
+    highest_detected <- c(
+      Bean = bean_detected,
+      Cowpea = cowpea_detected,
+      Pea = pea_detected
+    )
+
+    highest_group <- names(
+      which.max(highest_detected)
+    )
+
+    if (ncol(tab) < 2 || nrow(tab) < 2) {
+
+      return(
+        data.frame(
+          Metabolite = met,
+          Bean_detected = bean_detected,
+          Cowpea_detected = cowpea_detected,
+          Pea_detected = pea_detected,
+          Highest_detected = highest_group,
+          G_statistic = NA,
+          p_value = NA
+        )
+      )
+    }
+
+    gt <- tryCatch(
+      DescTools::GTest(
+        tab,
+        correct = "williams"
+      ),
+      error = function(e) NULL
+    )
+
+    if (is.null(gt)) {
+
+      return(
+        data.frame(
+          Metabolite = met,
+          Bean_detected = bean_detected,
+          Cowpea_detected = cowpea_detected,
+          Pea_detected = pea_detected,
+          Highest_detected = highest_group,
+          G_statistic = NA,
+          p_value = NA
+        )
+      )
+    }
+
+    data.frame(
+      Metabolite = met,
+      Bean_detected = bean_detected,
+      Cowpea_detected = cowpea_detected,
+      Pea_detected = pea_detected,
+      Highest_detected = highest_group,
+      G_statistic = unname(gt$statistic),
+      p_value = gt$p.value
+    )
+  }
+)
+
+g_test_results <- do.call(
+  rbind,
+  g_test_results
+)
+
+g_test_results$FDR <- p.adjust(
+  g_test_results$p_value,
+  method = "fdr"
+)
+
+g_test_results <- g_test_results %>%
+  left_join(
+    metabolite_info,
+    by = "Metabolite"
+  ) %>%
+  arrange(FDR)
+```
+
+# 5. PLS-DA
+
+```{r}
+
+# 5. PLS-DA
+
+# Remove metabolites with zero variance
+metabolite_sd <- apply(
+  abundance_log2,
+  2,
+  sd,
+  na.rm = TRUE
+)
+
+abundance_pls <- abundance_log2[
+  ,
+  metabolite_sd > 0,
+  drop = FALSE
+]
+
+# Define plant groups
+Y <- factor( sample_info$Variety,
+  levels = c( "Anasazi", "California5",
+    "Vail")
+)
+# Run PLS-DA
+plsda_model <- mixOmics::plsda(
+  X = abundance_pls,
+  Y = Y,
+  ncomp = 2
+)
+
+# Extract PLS-DA coordinates
+plsda_df <- data.frame(
+  Sample = rownames(abundance_pls),
+  Group = Y,
+  Comp1 = plsda_model$variates$X[, 1],
+  Comp2 = plsda_model$variates$X[, 2]
+)
+
+# Variance explained
+plsda_var <- plsda_model$prop_expl_var$X * 100
+
+comp1_var <- round(
+  plsda_var[1],
+  1
+)
+comp2_var <- round(
+  plsda_var[2],
+  1
+)
+
+# Colors
+group_colors <- c(
+  Anasazi = "#8B0000",
+  California5 = "#B8860B",
+  Vail = "#00008B"
+)
+
+# PLS-DA figure
+plsda_plot <- ggplot(  plsda_df,
+  aes(  x = Comp1, y = Comp2,
+    color = Group, label = Sample )) +
+  geom_point(
+    size = 4
+  ) +
+  geom_text_repel(
+    size = 4,
+    show.legend = FALSE
+  ) +
+  scale_color_manual(
+    values = group_colors
+  ) +
+  theme_classic(
+    base_size = 14
+  ) +
+  labs(
+    title = "PLS-DA of Legume Root Exudate Metabolites",
+    x = paste0(
+      "Component 1 (",
+      comp1_var,
+      "%)"
+    ),
+    y = paste0(
+      "Component 2 (",
+      comp2_var,
+      "%)"
+    ),
+    color = "Legume"
+  ) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      hjust = 0.5
+    ),
+    axis.title = element_text(
+      face = "bold"
+    ),
+    axis.text = element_text(
+      face = "bold"
+    ),
+    legend.title = element_text(
+      face = "bold"
+    ),
+    legend.text = element_text(
+      face = "bold"
+    )
+  )
+
+print(plsda_plot)
+```
+
+# 6. VIP scores and group means
+
+```{r}
+group_means <- data.frame(
+  Metabolite = colnames(abundance_log2),
+  Bean_mean = colMeans(
+    abundance_log2[
+      sample_info$Group == "Bean",
+      ,
+      drop = FALSE
+    ],
+    na.rm = TRUE
+  ), Cowpea_mean = colMeans( abundance_log2[
+      sample_info$Group == "Cowpea",
+      ,  drop = FALSE ],
+    na.rm = TRUE ),
+  Pea_mean = colMeans( abundance_log2[ sample_info$Group == "Pea",
+      , drop = FALSE ], na.rm = TRUE ))
+
+vip_scores <- mixOmics::vip(
+  plsda_model
+)
+
+vip_df <- data.frame(
+  Metabolite = colnames(abundance_pls),
+  VIP = vip_scores[, 1]
+)
+
+vip_df <- vip_df %>%
+  left_join(
+    metabolite_info,
+    by = "Metabolite"
+  ) %>%
+  left_join(
+    group_means,
+    by = "Metabolite"
+  ) %>%
+  mutate(
+    Highest_in = case_when(
+      Bean_mean > Cowpea_mean &
+        Bean_mean > Pea_mean ~ "Bean",
+      Cowpea_mean > Bean_mean &
+        Cowpea_mean > Pea_mean ~ "Cowpea",
+      Pea_mean > Bean_mean &
+        Pea_mean > Cowpea_mean ~ "Pea",
+      TRUE ~ "Tie"
+    )
+  ) %>%
+  arrange(
+    desc(VIP)
+  )
+```
+
+# 7. One-way ANOVA and FDR
+
+```{r}
+anova_results <- data.frame(
+  Metabolite = colnames(abundance_log2),
+  pvalue = NA_real_
+)
+
+for (i in seq_along(colnames(abundance_log2))) {
+
+  met <- colnames(abundance_log2)[i]
+
+  df_anova <- data.frame(
+    value = abundance_log2[, met],
+    Group = sample_info$Group
+  )
+# Remove missing values
+  df_anova <- df_anova[
+    complete.cases(df_anova),
+  ]
+# Run ANOVA
+  model <- aov(
+    value ~ Group,
+    data = df_anova
+  )
+# Save ANOVA p-value
+  anova_results$pvalue[i] <-
+    summary(model)[[1]][["Pr(>F)"]][1]
+}
+# FDR correction
+anova_results$FDR <- p.adjust(
+  anova_results$pvalue,
+  method = "fdr"
+)
+anova_results <- anova_results %>%
+  left_join(
+    metabolite_info,
+    by = "Metabolite"
+  ) %>%
+  left_join(
+    group_means,
+    by = "Metabolite"
+  ) %>%
+  mutate(
+    Highest_in = case_when(
+ Bean_mean > Cowpea_mean &
+        Bean_mean > Pea_mean ~ "Bean",
+
+ Cowpea_mean > Bean_mean &
+        Cowpea_mean > Pea_mean ~ "Cowpea",
+
+ Pea_mean > Bean_mean &
+        Pea_mean > Cowpea_mean ~ "Pea",
+      TRUE ~ "Tie"
+    )
+  ) %>%
+  arrange(FDR)
+sig_anova <- anova_results %>%
+  filter(
+    !is.na(FDR),
+    FDR < 0.05
+  )
+```
+
+# 8. Heatmap of ANOVA-significant metabolites
+
+```{r}
+sig_metabolites <- sig_anova$Metabolite
+
+heat_group <- data.frame(
+  Anasazi = colMeans(
+    abundance_log2[
+      sample_info$Group == "Bean",
+      sig_metabolites,
+      drop = FALSE
+    ],
+    na.rm = TRUE
+  ),
+ California5 = colMeans(
+    abundance_log2[
+      sample_info$Group == "Cowpea",
+      sig_metabolites,
+      drop = FALSE
+    ],
+    na.rm = TRUE
+  ),
+  Vail = colMeans(
+    abundance_log2[
+      sample_info$Group == "Pea",
+      sig_metabolites,
+      drop = FALSE
+    ],
+    na.rm = TRUE
+  )
+)
+rownames(
+  heat_group
+) <- sig_metabolites
+
+heat_group_scaled <- t(
+  scale(
+    t(
+      as.matrix(
+        heat_group ) )))
+
+heat_colors <- colorRampPalette(
+  c(
+    "#08306B",
+    "#F7F7F7",
+    "#99000D"
+  )
+)(100)
+
+category_map <- c(
+  "phthalic acid" = "Phenolic/aromatic",
+  "3-phenyllactic acid" = "Phenolic/aromatic",
+  "1-(2-hydroxyethyl)-2,2,6,6-tetramethyl-4-piperidinol*" = "Other",
+  "xylo-pentodialdose*" = "Sugar/organic acid",
+  "D-xylitol" = "Sugar/organic acid",
+  "4-hydroxycinnamic acid (p-coumaric acid)" = "Phenolic/aromatic",
+  "caffeic acid" = "Phenolic/aromatic",
+  "4-hydroxypent-3-enoic acid*" = "Sugar/organic acid",
+  "isophthalic acid*" = "Phenolic/aromatic",
+  "bis(2-hydroxyethyl) phthalate*" = "Phenolic/aromatic",
+  "2-(hydroxymethyl)-2-methylpropane-1,3-diol*" = "Other",
+  "L-pyroglutamic acid" = "Amino acid/defense",
+  "L-valine" = "Amino acid/defense",
+  "L-phenylalanine" = "Amino acid/defense",
+  "variabilin*" = "Amino acid/defense",
+  "willardiine" = "Amino acid/defense",
+  "L-homoserine" = "Amino acid/defense",
+  "flavone base+2O+2MeO" = "Phenolic/aromatic",
+  "L-glutamic acid" = "Amino acid/defense",
+  "pisatin*" = "Amino acid/defense",
+  "L-threonine" = "Amino acid/defense",
+  "uracil" = "Amino acid/defense",
+  "2,4-dihydroxybenzoic acid*" = "Phenolic/aromatic",
+  "D-ribitol" = "Sugar/organic acid",
+  "erythritol/threitol" = "Sugar/organic acid",
+  "2,3,4-trihydroxybutyric acid *" = "Sugar/organic acid",
+  "glycolic acid" = "Sugar/organic acid",
+  "D-xylulose" = "Sugar/organic acid",
+  "nonanoic acid" = "Sugar/organic acid"
+)
+row_annotations <- data.frame(
+  Category = category_map[
+    rownames(
+      heat_group_scaled
+    )
+  ]
+)
+rownames(
+  row_annotations
+) <- rownames(
+  heat_group_scaled
+)
+row_annotations$Category[
+  is.na(row_annotations$Category)
+] <- "Other"
+row_colors <- list(
+  Category = c(
+    "Sugar/organic acid" = "#B8860B",
+    "Phenolic/aromatic" = "#8B0000",
+    "Amino acid/defense" = "#00008B",
+    "Other" = "#808080"
+  )
+)
+heatmap_plot <- pheatmap(
+  heat_group_scaled,
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  color = heat_colors,
+  annotation_row = row_annotations,
+  annotation_colors = row_colors,
+  fontsize_row = 10,
+  fontsize_col = 14,
+  border_color = NA,
+  main = "ANOVA-Significant Metabolites",
+  legend = TRUE,
+  silent = TRUE
+)
+grid.newpage()
+grid.draw(
+  heatmap_plot$gtable
+)
+```
+
+# 9. Master table: ANOVA + VIP + G-test
+
+```{r}
+anova_merge <- anova_results %>%
+  dplyr::rename(
+    ANOVA_pvalue = pvalue,
+    ANOVA_FDR = FDR,
+    ANOVA_Highest = Highest_in
+  )
+vip_merge <- vip_df %>%
+  dplyr::select(
+    Metabolite,
+    VIP,
+    Highest_in
+  ) %>%
+  dplyr::rename(
+    VIP_Highest = Highest_in
+  )
+gtest_merge <- g_test_results %>%
+  dplyr::select(
+    Metabolite,
+    G_statistic,
+    p_value,
+    FDR,
+    Highest_detected
+  ) %>%
+  dplyr::rename(
+    GTest_pvalue = p_value,
+    GTest_FDR = FDR,
+    GTest_Highest = Highest_detected
+  )
+
+master_results <- anova_merge %>%
+  left_join(
+    vip_merge,
+    by = "Metabolite"
+  ) %>%
+  left_join(
+    gtest_merge,
+    by = "Metabolite"
+  ) %>%
+  mutate(
+    GTest_Highest = ifelse(
+      is.na(G_statistic),
+      NA_character_,
+      GTest_Highest
+    ),
+    VIP_selected = ifelse(
+      !is.na(VIP) & VIP >= 1,
+      "Yes",
+      "No"
+    ),
+    ANOVA_significant = ifelse(
+      !is.na(ANOVA_FDR) &
+        ANOVA_FDR < 0.05,
+      "Yes",
+      "No"
+    ),
+    GTest_significant = ifelse(
+      !is.na(GTest_FDR) &
+        GTest_FDR < 0.05,
+      "Yes",
+      "No"
+    )
+  ) %>%
+  arrange(
+    ANOVA_FDR,
+    desc(VIP),
+    GTest_FDR
+  )
+
+View(master_results)
+```
+
+# 10. Prepare enrichment table
+```{r}
+master <- master_results %>%
+  dplyr::transmute(
+    Metabolite = as.character(Metabolite),
+    Anasazi = as.numeric(Bean_mean),
+    California5 = as.numeric(Cowpea_mean),
+    Vail = as.numeric(Pea_mean),
+    pvalue = as.numeric(ANOVA_pvalue),
+    FDR = as.numeric(ANOVA_FDR),
+    Main_class = as.character(Main_class),
+    Sub_class = as.character(Sub_class),
+    HighestPlant = case_when(
+      ANOVA_Highest == "Bean" ~ "Anasazi",
+      ANOVA_Highest == "Cowpea" ~ "California5",
+      ANOVA_Highest == "Pea" ~ "Vail",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  mutate(
+    Anasazi_enrichment =
+      Anasazi -
+      ((California5 + Vail) / 2),
+    California5_enrichment =
+      California5 -
+      ((Anasazi + Vail) / 2),
+    Vail_enrichment =
+      Vail -
+      ((Anasazi + California5) / 2)
+  )
+```
+
+# 11. Chemical categories for enrichment figure
+
+```{r}
+master <- master %>%
+  mutate(
+    Classification_text = paste(
+      Main_class,
+      Sub_class,
+      Metabolite
+    ),
+    Chemical_group = case_when(
+      grepl(
+        "phenol|phenolic|aromatic|benzen|phenyl|flavonoid|cinnamic|coumaric|caffeic|ferulic|sinapic|gallic|phthal",
+        Classification_text,
+        ignore.case = TRUE
+      ) ~ "Phenolic/aromatic",
+      grepl(
+        "amino|peptide|nitrogen|defense|glutam|aspart|alanine|valine|leucine|isoleucine|glycine|serine|threonine|lysine|arginine|histidine",
+        Classification_text,
+        ignore.case = TRUE
+      ) ~ "Amino acid/defense",
+      grepl(
+        "organic acid|carboxylic|dicarboxylic|hydroxy acid|glycolic acid|nonanoic acid|trihydroxybutyric acid|malonic|succinic|citric|malic|fumaric|aconitic|quinic|pent.*enoic",
+        Classification_text,
+        ignore.case = TRUE
+      ) ~ "Organic acid",
+      grepl(
+        "sugar|carbohydrate|saccharide|sugar alcohol|xylitol|xylulose|glucose|fructose|sucrose|trehalose|ribose|xylose|fucose|sorbitol|mannitol",
+        Classification_text,
+        ignore.case = TRUE
+      ) ~ "Sugar/sugar alcohol",
+      TRUE ~ "Other/Unclassified"
+    ),
+    Category = case_when(
+      Chemical_group %in% c(
+        "Sugar/sugar alcohol",
+        "Organic acid"
+      ) ~ "Sugar/organic acid",
+      TRUE ~ Chemical_group
+    )
+  )
+```
+
+# 12. Enrichment figure settings
+```{r}
+category_colors <- c(
+  "Phenolic/aromatic" = "#8B0000",
+  "Amino acid/defense" = "#1F4E79",
+  "Sugar/organic acid" = "#C99700",
+  "Other/Unclassified" = "#6E6E6E"
+)
+
+all_enrichment_values <- c(
+  master$Anasazi_enrichment[
+    master$HighestPlant == "Anasazi" &
+      master$FDR < 0.05
+  ],
+  master$California5_enrichment[
+    master$HighestPlant == "California5" &
+      master$FDR < 0.05
+  ],
+  master$Vail_enrichment[
+    master$HighestPlant == "Vail" &
+      master$FDR < 0.05
+  ]
+)
+
+all_enrichment_values <- all_enrichment_values[
+  is.finite(all_enrichment_values) &
+    all_enrichment_values > 0
+]
+
+common_xmax <- ceiling(
+  max(
+    all_enrichment_values,
+    na.rm = TRUE
+  ) * 1.08
+)
+
+# 13. Enrichment figure function
+
+plot_plant_enrichment <- function(
+    plant,
+    top_n = 15
+) {
+
+  enrichment_column <- paste0(
+    plant,
+    "_enrichment"
+  )
+
+  df_plot <- master %>%
+    filter(
+      HighestPlant == plant
+    ) %>%
+    mutate(
+      Enrichment =
+        .data[[enrichment_column]]
+    ) %>%
+    filter(
+      !is.na(Enrichment),
+      is.finite(Enrichment),
+      Enrichment > 0,
+      !is.na(FDR),
+      FDR < 0.05
+    ) %>%
+    arrange(
+      FDR,
+      desc(Enrichment)
+    ) %>%
+    slice_head(
+      n = top_n
+    ) %>%
+    mutate(
+      Significance = case_when(
+        FDR < 0.001 ~ "***",
+        FDR < 0.01 ~ "**",
+        FDR < 0.05 ~ "*",
+        TRUE ~ ""
+      ),
+      PlotLabel = paste0(
+        Metabolite,
+        " ",
+        Significance
+      )
+    )
+
+  df_plot$Category <- factor(
+    df_plot$Category,
+    levels = c(
+      "Phenolic/aromatic",
+      "Amino acid/defense",
+      "Sugar/organic acid",
+      "Other/Unclassified"
+    )
+  )
+
+  df_plot <- df_plot %>%
+    arrange(
+      Category,
+      desc(Enrichment)
+    )
+
+  df_plot$PlotLabel <- factor(
+    df_plot$PlotLabel,
+    levels = rev(
+      df_plot$PlotLabel
+    )
+  )
+
+  display_name <- ifelse(
+    plant == "California5",
+    "California-5",
+    plant
+  )
+
+  ggplot(
+    df_plot,
+    aes(
+      x = Enrichment,
+      y = PlotLabel,
+      fill = Category
+    )
+  ) +
+    geom_col(
+      width = 0.70
+    ) +
+    facet_grid(
+      rows = vars(Category),
+      scales = "free_y",
+      space = "free_y",
+      switch = "y"
+    ) +
+    scale_fill_manual(
+      values = category_colors,
+      drop = FALSE
+    ) +
+    scale_x_continuous(
+      limits = c(
+        0,
+        common_xmax
+      ),
+      expand = expansion(
+        mult = c(
+          0,
+          0.03
+        )
+      )
+    ) +
+    labs(
+      title = display_name,
+      subtitle = "ANOVA-significant metabolites (FDR < 0.05)",
+      x = "Enrichment relative to the mean\nof the other two plants (log2)",
+      y = NULL
+    ) +
+    theme_classic(
+      base_size = 14
+    ) +
+    theme(
+      plot.title = element_text(
+        face = "bold",
+        size = 18,
+        hjust = 0.5
+      ),
+      plot.subtitle = element_text(
+        face = "bold",
+        size = 11,
+        hjust = 0.5,
+        margin = margin(
+          b = 10
+        )
+      ),
+      axis.title.x = element_text(
+        face = "bold",
+        size = 13,
+        margin = margin(
+          t = 15
+        )
+      ),
+      axis.text.x = element_text(
+        face = "bold",
+        size = 11
+      ),
+      axis.text.y = element_text(
+        face = "bold",
+        size = 10.5
+      ),
+      strip.text.y.left = element_text(
+        angle = 0,
+        face = "bold",
+        size = 10.5
+      ),
+      strip.background = element_rect(
+        fill = "grey95",
+        color = "grey40",
+        linewidth = 0.6
+      ),
+      legend.position = "none",
+      panel.spacing.y = grid::unit(
+        0.45,
+        "lines"
+      )
+    )
+}
+```
+
+# 14. Create enrichment figures
+
+```{r}
+p_Anasazi <- plot_plant_enrichment(
+  "Anasazi",
+  top_n = 15
+)
+
+p_California5 <- plot_plant_enrichment(
+  "California5",
+  top_n = 15
+)
+
+p_Vail <- plot_plant_enrichment(
+  "Vail",
+  top_n = 15
+)
+
+print(p_Anasazi)
+print(p_California5)
+print(p_Vail)
+```
+
+# 15. Save final outputs
+
+```{r}
+dir.create(
+  "Fig5",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+ggsave(
+  "Fig5/PLSDA_Legume_Root_Exudates.png",
+  plsda_plot,
+  width = 7,
+  height = 5,
+  dpi = 600,
+  bg = "white"
+)
+png(
+  "Fig5/ANOVA_significant_heatmap.png",
+  width = 2400,
+  height = 3000,
+  res = 300
+)
+grid.draw(
+  heatmap_plot$gtable
+)
+
+dev.off()
+
+ggsave(
+  "Fig5/Anasazi_enrichment.png",
+  p_Anasazi,
+  width = 10,
+  height = 8,
+  dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  "Fig5/California5_enrichment.png",
+  p_California5,
+  width = 10,
+  height = 8,
+  dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  "Fig5/Vail_enrichment.png",
+  p_Vail,
+  width = 10,
+  height = 8,
+  dpi = 600,
+  bg = "white"
+)
+
+write.csv(
+  master_results,
+  "Fig5/Master_ANOVA_VIP_GTest_Results.csv",
+  row.names = FALSE
+)
+
+write.csv(
+  anova_results,
+  "Fig5/ANOVA_FDR_results.csv",
+  row.names = FALSE
+)
+
+write.csv(
+  vip_df,
+  "Fig5/VIP_scores.csv",
+  row.names = FALSE
+)
+
+write.csv(
+  g_test_results,
+  "Fig5/GTest_results.csv",
+  row.names = FALSE
+)
+```
+

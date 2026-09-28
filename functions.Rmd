@@ -1,0 +1,898 @@
+---
+title: "Functions"
+author: "MD"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(ggbeeswarm)
+library(readxl)
+library(phyloseq)
+library(tidyverse)
+library(patchwork)
+```
+
+```{r}
+kegg <- read_excel('EMU_database.GIBBs.KO.PICRUST2.xlsx', sheet='EMU_database.GIBBs.PICRUSt2', range='B9:BE17565')
+kegg <- kegg %>%
+  mutate_if(is.numeric, replace_na, replace=0)
+
+
+
+P.count <- readRDS("../Data/P.count.RDS")
+colnames(tax_table(P.count)) <- c('Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species')
+
+bac.list <- c("[Bacillus] thermocloacae", "[Clostridium] ultunense", "[Eubacterium] tenue",
+              "Alkalihalobacillus halodurans", "Alkaliphilus oremlandii", "Bacillus lentus",
+              "Bacillus licheniformis", "Bacillus mannanilyticus", "Bacillus salarius",
+              "Bacillus thermolactis", "Clostridium saudiense", "Intrasporangium calvum",
+              "Keratinibaculum paraultunense", "Limnochorda pilosa", "Massilia umbonata",
+              "Mesobacillus maritimus", "Neorhizobium galegae", "Niastella koreensis",
+              "Novibacillus thermophilus", "Oceanobacillus iheyensis", "Oceanobacillus luteolus",
+              "Ornithinibacillus californiensis", "Ornithinibacillus salinisoli", "Paeniclostridium sordellii",
+              "Planifilum composti", "Pseudoxanthomonas mexicana", "Ramlibacter ginsenosidimutans",
+              "Rhizobium etli", "Rhizobium gallicum", "Romboutsia timonensis", 
+              "Saccharomonospora viridis", "Sinibacillus soli", "Sporosarcina siberiensis", 
+              "Tenuibacillus halotolerans", "Tepidimicrobium xylanilyticum", "Thalassobacillus devorans",
+              "Thermobifida fusca", "Turicibacter sanguinis", "Turicibacter sp. H121",
+              "Ureibacillus defluvii", "Ureibacillus thermosphaericus", "Xylanibacillus composti")
+
+#d <- read.csv("../Data/df_triplicate.csv")
+#d.tri <- filter(d, feature %in% bac.list)
+
+```
+
+## Get df of functions 
+```{r}
+keggsub <- filter(kegg, Species %in% bac.list)
+
+
+d<- pivot_longer(keggsub, cols=hcnA:nosZ, names_to = 'Gene', values_to = 'value') %>% 
+   filter(!value==0)
+
+
+d$Function <- ifelse(d$Gene=="hcnA", "Biocontrol",
+                        ifelse(d$Gene=="budA","Biocontrol",
+                               ifelse(d$Gene=="budC","Biocontrol",
+                                      ifelse(d$Gene=="E3.2.1.6","Biocontrol",                                             ifelse(d$Gene=="E3.2.1.14","Biocontrol",                                                    ifelse(d$Gene=="phlD","Biocontrol",                                                       ifelse(d$Gene=="ituA","Biocontrol",  
+                      ifelse(d$Gene=="fenA", "Biocontrol",
+                        ifelse(d$Gene=="srfAA","Biocontrol",
+                               ifelse(d$Gene=="rifM","Biocontrol",
+                                      ifelse(d$Gene=="phzE","Biocontrol",
+                                             ifelse(d$Gene=="ipdC","Stress",                                                    ifelse(d$Gene=="acdS","Stress",                                                           ifelse(d$Gene=="mbtI","Siderophore",                                                    ifelse(d$Gene=="entA", "Siderophore",
+        ifelse(d$Gene=="pchB","Siderophore",
+           ifelse(d$Gene=="bglX","C decomposition",
+              ifelse(d$Gene=="bglB","C decomposition",
+                 ifelse(d$Gene=="E3.2.1.21","C decomposition",                                          ifelse(d$Gene=="amiE","N decomposition",    
+ifelse(d$Gene=="ureC","N decomposition",                                                    ifelse(d$Gene=="pqqC", "PO4 solubility",
+        ifelse(d$Gene=="phoA","P decomposition",
+           ifelse(d$Gene=="phoD","P decomposition",
+              ifelse(d$Gene=="PHO","P decomposition",
+                 ifelse(d$Gene=="appA","P decomposition",                                          ifelse(d$Gene=="phoN","P decomposition",                             ifelse(d$Gene=="aslA","S decomposition",                                                    ifelse(d$Gene=="nifH", "N-fixation",
+        ifelse(d$Gene=="nifD","N-fixation",
+           ifelse(d$Gene=="nifK","N-fixation",
+              ifelse(d$Gene=="pmoA-amoA","Nitrification",
+                 ifelse(d$Gene=="hao","Nitrification",                                          ifelse(d$Gene=="nirB","Dissimilatory nitrate reduction",    
+ifelse(d$Gene=="nirD","Dissimilatory nitrate reduction",                                   ifelse(d$Gene=="nrfA", "Dissimilatory nitrate reduction",
+        ifelse(d$Gene=="nirA","Assimilatory nitrate reduction",
+           ifelse(d$Gene=="NIT-6","Assimilatory nitrate reduction",
+              ifelse(d$Gene=="narG","Denitrification",
+                 ifelse(d$Gene=="narH","Denitrification",                                          ifelse(d$Gene=="nirK","Denitrification",    
+ ifelse(d$Gene=="nirS","Denitrification",                                   ifelse(d$Gene=="norB", "Denitrification",
+        ifelse(d$Gene=="norC","Denitrification",
+          ifelse(d$Gene=='nosZ','Denitrification',NA)))))))))))))))))))))))))))))))))))))))))))))
+
+d.sum <- summarize(group_by(d, Species, Gene,Function)) %>% 
+  filter(., Function != 'Assimilatory nitrate reduction') %>% 
+  filter(., Function != 'Dissimilatory nitrate reduction') %>% 
+  filter(., Function != 'Denitrification')
+
+d.sum <- d.sum %>%
+mutate(Function = as_factor(Function)) %>%
+mutate(Function = fct_relevel(Function,  "N decomposition","P decomposition", "C decomposition","N-fixation",  "Biocontrol","S decomposition", "Stress", "Nitrification", "Siderophore", "PO4 solubility")) 
+table(d.sum$Function)
+
+endcols = data.frame(Gene = NA, Function = NA)
+
+d.bac.list <- as.data.frame(bac.list)
+names(d.bac.list)[names(d.bac.list) == 'bac.list'] <- 'Species'
+
+d.nofunction <- filter(d.bac.list, !bac.list %in% d.sum$Species) %>% 
+  cbind(., endcols)
+
+d.sum_all <- rbind(d.sum, d.nofunction)
+
+d.sum_all <- d.sum_all %>%
+mutate(Species = as_factor(Species)) %>%
+mutate(Species = fct_relevel(Species, 
+              "Rhizobium gallicum",
+              "Xylanibacillus composti", "Neorhizobium galegae", "Rhizobium etli",  
+              "Pseudoxanthomonas mexicana", "Bacillus licheniformis", "Alkalihalobacillus halodurans", 
+              "Clostridium saudiense", "Intrasporangium calvum",
+               "Massilia umbonata",
+              "Mesobacillus maritimus",  
+              "Novibacillus thermophilus", "Oceanobacillus iheyensis", "Oceanobacillus luteolus",
+              "Ornithinibacillus californiensis", "Ornithinibacillus salinisoli",
+               "Ramlibacter ginsenosidimutans",
+               "Saccharomonospora viridis", "Sinibacillus soli", "Sporosarcina siberiensis", 
+               "Thalassobacillus devorans",
+              "Thermobifida fusca",
+              "Ureibacillus defluvii", "Ureibacillus thermosphaericus", "[Bacillus] thermocloacae",
+              "Paeniclostridium sordellii", "[Eubacterium] tenue",
+              "Romboutsia timonensis", "Tenuibacillus halotolerans","Planifilum composti",
+              "Niastella koreensis","Keratinibaculum paraultunense","Tepidimicrobium xylanilyticum",
+               "Turicibacter sp. H121", "Alkaliphilus oremlandii", "Turicibacter sanguinis", 
+              "[Clostridium] ultunense", "Bacillus lentus","Bacillus mannanilyticus", 
+              "Bacillus salarius","Bacillus thermolactis","Limnochorda pilosa"))
+```
+
+
+```{r}
+p<-ggplot(d.sum_all, aes(x=Function, y=(Species), color=Gene)) + 
+   geom_beeswarm(size=3, alpha = 0.7, cex=1.3) +
+   scale_color_manual(values = c("#EA4691", "chartreuse4", "#26194C","goldenrod","#BFE75D", "#662341","firebrick","tomato", "#39FDA4", "maroon",  "darkorchid1", "#239A9E", "#38A2B9","cornflowerblue",
+                                  "lightslateblue", "blue","cyan", "deepskyblue", "turquoise", "red", "springgreen4"))+ 
+  theme_classic()+
+  geom_vline(xintercept = 1.5, linewidth = 0.3, color = "gray90")+
+  geom_vline(xintercept = 2.5, linewidth = 0.3, color = "gray90")+
+  geom_vline(xintercept = 3.5, linewidth = 0.3, color = "gray90")+
+  geom_vline(xintercept = 4.5, linewidth = 0.3, color = "gray90")+
+  geom_vline(xintercept = 5.5, linewidth = 0.3, color = "gray90")+
+  geom_vline(xintercept = 6.5, linewidth = 0.3, color = "gray90")+
+  geom_vline(xintercept = 7.5, linewidth = 0.3, color = "gray90")+
+  geom_vline(xintercept = 8.5, linewidth = 0.3, color = "gray90")+
+  geom_vline(xintercept = 9.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 1.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 2.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 3.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 4.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 5.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 6.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 7.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 8.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 9.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 10.5, linewidth = 0.5, color = "gray90")+
+  geom_hline(yintercept = 11.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 12.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 13.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 14.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 15.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 16.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 17.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 18.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 19.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 20.5, linewidth = 0.5, color = "gray90")+   
+  geom_hline(yintercept = 21.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 22.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 23.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 24.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 25.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 26.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 27.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 28.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 29.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 30.5, linewidth = 0.5, color = "gray90")+
+  geom_hline(yintercept = 31.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 32.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 33.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 34.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 35.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 36.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 37.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 38.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 39.5, linewidth = 0.3, color = "gray90")+
+  geom_hline(yintercept = 40.5, linewidth = 0.5, color = "gray90")+
+  geom_hline(yintercept = 41.5, linewidth = 0.3, color = "gray90")+
+   theme(axis.line = element_line(colour = "black"),
+        axis.text.x = element_text(color = "black"),
+        axis.title.y = element_blank(),
+        legend.key = element_blank(),
+        legend.position = "right",
+        axis.text.y = element_text(color='black',size = 10),
+        strip.text = element_text(size=10, face="bold", color= 'black'), 
+        legend.title = element_blank(),
+        strip.background = element_blank(),
+        axis.title.x = element_blank());p
+```
+
+
+
+```{r}
+# ============================================================
+# 1. Load libraries
+# ============================================================
+
+library(ggbeeswarm)
+library(readxl)
+library(phyloseq)
+library(tidyverse)
+library(patchwork)
+
+
+# ============================================================
+# 2. Import the PICRUSt2 / KEGG database
+# ============================================================
+
+kegg <- read_excel(
+  "EMU_database.GIBBs.KO.PICRUST2.xlsx",
+  sheet = "EMU_database.GIBBs.PICRUSt2",
+  range = "B9:BE17565"
+)
+
+# Replace missing numeric values with zero
+kegg <- kegg %>%
+  mutate(
+    across(
+      where(is.numeric),
+      ~replace_na(.x, 0)
+    )
+  )
+
+
+# ============================================================
+# 3. Import the phyloseq object
+# ============================================================
+
+P.count <- readRDS("../Data/P.count.RDS")
+
+colnames(tax_table(P.count)) <- c(
+  "Kingdom",
+  "Phylum",
+  "Class",
+  "Order",
+  "Family",
+  "Genus",
+  "Species"
+)
+
+
+# ============================================================
+# 4. Create the new bacterial species list
+# ============================================================
+
+bac.list <- c(
+  "[Brevibacterium] frigoritolerans",
+  "Pedomicrobium manganicum",
+  "Thermostilla marina",
+  "Pelolinea submarina",
+  "Candidatus Solibacter usitatus",
+  "Pedomicrobium americanum",
+  "Planctomycetes bacterium Pan265",
+  "Candidatus Babela massiliensis",
+  "Limisphaera ngatamarikiensis",
+  "Planctomycetes bacterium Pla175",
+  "Caulobacteraceae bacterium OTSz_A_272",
+  "Geobacter daltonii",
+  "Fimbriiglobus ruber",
+  "Candidatus Promineofilum breve",
+  "Solirubrobacter soli",
+  "Nordella oligomobilis",
+  "Occallatibacter savannae",
+  "Phycisphaerae bacterium RAS2",
+  "Fimbriimonas ginsengisoli",
+  "Gemmata sp. SH-PL17",
+  "Actinobacteria bacterium IMCC26256",
+  "Anaeromyxobacter sp. K",
+  "Haliangium tepidum",
+  "Planctomycetes bacterium Pla85_3_4",
+  "Ornatilinea apprima",
+  "Acidimicrobium ferrooxidans",
+  "Gemmata massiliana",
+  "Gaiella occulta",
+  "Brevibacillus thermoruber",
+  "Rhodoplanes azumiensis",
+  "Planctomycetes bacterium ETA_A1",
+  "Ammoniphilus resinae",
+  "Caldanaerobacter subterraneus",
+  "Luteitalea pratensis",
+  "Georgfuchsia toluolica"
+)
+
+# Ensure duplicated names are removed
+bac.list <- unique(bac.list)
+
+# Check the number of unique bacteria
+length(bac.list)
+
+
+# ============================================================
+# 5. Check which bacteria are present in the KEGG database
+# ============================================================
+
+present_bacteria <- bac.list[
+  bac.list %in% kegg$Species
+]
+
+missing_bacteria <- bac.list[
+  !bac.list %in% kegg$Species
+]
+
+cat("Number present in KEGG database:", length(present_bacteria), "\n")
+cat("Number missing from KEGG database:", length(missing_bacteria), "\n")
+
+print(present_bacteria)
+print(missing_bacteria)
+
+
+# ============================================================
+# 6. Subset the KEGG database for these bacteria
+# ============================================================
+
+keggsub <- kegg %>%
+  filter(Species %in% bac.list)
+
+
+# ============================================================
+# 7. Convert the gene columns to long format
+# ============================================================
+
+d <- keggsub %>%
+  pivot_longer(
+    cols = hcnA:nosZ,
+    names_to = "Gene",
+    values_to = "value"
+  ) %>%
+  filter(value != 0)
+
+
+# ============================================================
+# 8. Assign each gene to a microbial function
+# ============================================================
+
+d <- d %>%
+  mutate(
+    Function = case_when(
+
+      # Biocontrol
+      Gene %in% c(
+        "hcnA",
+        "budA",
+        "budC",
+        "E3.2.1.6",
+        "E3.2.1.14",
+        "phlD",
+        "ituA",
+        "fenA",
+        "srfAA",
+        "rifM",
+        "phzE"
+      ) ~ "Biocontrol",
+
+      # Stress tolerance
+      Gene %in% c(
+        "ipdC",
+        "acdS"
+      ) ~ "Stress",
+
+      # Siderophore production
+      Gene %in% c(
+        "mbtI",
+        "entA",
+        "pchB"
+      ) ~ "Siderophore",
+
+      # Carbon decomposition
+      Gene %in% c(
+        "bglX",
+        "bglB",
+        "E3.2.1.21"
+      ) ~ "C decomposition",
+
+      # Nitrogen decomposition
+      Gene %in% c(
+        "amiE",
+        "ureC"
+      ) ~ "N decomposition",
+
+      # Phosphate solubilization
+      Gene == "pqqC" ~ "PO4 solubility",
+
+      # Phosphorus decomposition
+      Gene %in% c(
+        "phoA",
+        "phoD",
+        "PHO",
+        "appA",
+        "phoN"
+      ) ~ "P decomposition",
+
+      # Sulfur decomposition
+      Gene == "aslA" ~ "S decomposition",
+
+      # Nitrogen fixation
+      Gene %in% c(
+        "nifH",
+        "nifD",
+        "nifK"
+      ) ~ "N-fixation",
+
+      # Nitrification
+      Gene %in% c(
+        "pmoA-amoA",
+        "hao"
+      ) ~ "Nitrification",
+
+      # Dissimilatory nitrate reduction
+      Gene %in% c(
+        "nirB",
+        "nirD",
+        "nrfA"
+      ) ~ "Dissimilatory nitrate reduction",
+
+      # Assimilatory nitrate reduction
+      Gene %in% c(
+        "nirA",
+        "NIT-6"
+      ) ~ "Assimilatory nitrate reduction",
+
+      # Denitrification
+      Gene %in% c(
+        "narG",
+        "narH",
+        "nirK",
+        "nirS",
+        "norB",
+        "norC",
+        "nosZ"
+      ) ~ "Denitrification",
+
+      TRUE ~ NA_character_
+    )
+  )
+
+
+# ============================================================
+# 9. Create a summarized species-function-gene table
+# ============================================================
+
+d.sum <- d %>%
+  distinct(Species, Gene, Function) %>%
+  filter(!is.na(Function)) %>%
+  filter(Function != "Assimilatory nitrate reduction") %>%
+  filter(Function != "Dissimilatory nitrate reduction") %>%
+  filter(Function != "Denitrification")
+
+
+# ============================================================
+# 10. Set the order of microbial functions
+# ============================================================
+
+function_order <- c(
+  "N decomposition",
+  "P decomposition",
+  "C decomposition",
+  "N-fixation",
+  "Biocontrol",
+  "S decomposition",
+  "Stress",
+  "Nitrification",
+  "Siderophore",
+  "PO4 solubility"
+)
+
+d.sum <- d.sum %>%
+  mutate(
+    Function = factor(
+      Function,
+      levels = function_order
+    )
+  )
+
+# Check the number of observations in each function
+table(d.sum$Function)
+
+
+# ============================================================
+# 11. Add bacteria that do not have any detected functions
+# ============================================================
+
+d.bac.list <- tibble(
+  Species = bac.list
+)
+
+d.nofunction <- d.bac.list %>%
+  filter(!Species %in% d.sum$Species) %>%
+  mutate(
+    Gene = NA_character_,
+    Function = factor(
+      NA_character_,
+      levels = function_order
+    )
+  )
+
+
+# ============================================================
+# 12. Combine bacteria with and without detected functions
+# ============================================================
+
+d.sum_all <- bind_rows(
+  d.sum,
+  d.nofunction
+)
+
+
+# ============================================================
+# 13. Set the bacterial order for the graph
+# ============================================================
+
+d.sum_all <- d.sum_all %>%
+  mutate(
+    Species = factor(
+      Species,
+      levels = rev(bac.list)
+    ),
+    Function = factor(
+      Function,
+      levels = function_order
+    )
+  )
+
+
+# ============================================================
+# 14. Check the final data
+# ============================================================
+
+head(d.sum_all)
+
+table(d.sum_all$Species, useNA = "ifany")
+
+table(d.sum_all$Function, useNA = "ifany")
+
+#====================================================
+# Create colors automatically
+#====================================================
+
+genes <- sort(unique(na.omit(d.sum_all$Gene)))
+
+gene_cols <- setNames(
+  grDevices::hcl.colors(length(genes), "Dark 3"),
+  genes
+)
+
+#====================================================
+# Plot
+#====================================================
+
+p <- ggplot(
+  d.sum_all,
+  aes(x = Function, y = Species, color = Gene)
+) +
+
+  geom_beeswarm(
+    size = 3,
+    alpha = 0.7,
+    cex = 1.3
+  ) +
+
+  scale_color_manual(values = gene_cols) +
+
+  theme_classic() +
+
+  geom_vline(
+    xintercept = seq(
+      1.5,
+      length(levels(d.sum_all$Function)) - 0.5,
+      by = 1
+    ),
+    linewidth = 0.3,
+    color = "gray90"
+  ) +
+
+  geom_hline(
+    yintercept = seq(
+      1.5,
+      length(levels(d.sum_all$Species)) - 0.5,
+      by = 1
+    ),
+    linewidth = 0.3,
+    color = "gray90"
+  ) +
+
+  theme(
+    axis.line = element_line(colour = "black"),
+    axis.text.x = element_text(color = "black"),
+    axis.text.y = element_text(color = "black", size = 10),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    legend.title = element_blank(),
+    legend.key = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(
+      size = 10,
+      face = "bold",
+      color = "black"
+    ),
+    strip.background = element_blank()
+  )
+
+p
+
+
+
+
+
+p <- ggplot(
+  d.sum_all,
+  aes(x = Function, y = Species, color = Gene)
+) +
+
+  geom_beeswarm(
+    size = 3,
+    alpha = 0.7,
+    cex = 1.3
+  ) +
+
+  scale_color_manual(values = c(
+    "#EA4691", "chartreuse4", "#26194C", "goldenrod",
+    "#BFE75D", "#662341", "firebrick", "tomato",
+    "#39FDA4", "maroon", "darkorchid1", "#239A9E",
+    "#38A2B9", "cornflowerblue", "lightslateblue",
+    "blue", "cyan", "deepskyblue", "turquoise",
+    "red", "springgreen4"
+  )) +
+
+  theme_classic() +
+
+  geom_vline(
+    xintercept = seq(
+      1.5,
+      length(levels(d.sum_all$Function)) - 0.5,
+      by = 1
+    ),
+    linewidth = 0.3,
+    color = "gray90"
+  ) +
+
+  geom_hline(
+    yintercept = seq(
+      1.5,
+      length(levels(d.sum_all$Species)) - 0.5,
+      by = 1
+    ),
+    linewidth = 0.3,
+    color = "gray90"
+  ) +
+
+  theme(
+    axis.line = element_line(colour = "black"),
+    axis.text.x = element_text(color = "black"),
+    axis.text.y = element_text(color = "black", size = 10),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    legend.title = element_blank(),
+    legend.key = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(
+      size = 10,
+      face = "bold",
+      color = "black"
+    ),
+    strip.background = element_blank()
+  )
+
+p
+
+
+
+
+
+
+# Get all genes in a consistent order
+genes <- sort(unique(na.omit(d.sum_all$Gene)))
+
+# Your original colors
+base_gene_colors <- c(
+  "#EA4691",
+  "chartreuse4",
+  "#26194C",
+  "goldenrod",
+  "#BFE75D",
+  "#662341",
+  "firebrick",
+  "tomato",
+  "#39FDA4",
+  "maroon",
+  "darkorchid1",
+  "#239A9E",
+  "#38A2B9",
+  "cornflowerblue",
+  "lightslateblue",
+  "blue",
+  "cyan",
+  "deepskyblue",
+  "turquoise",
+  "red",
+  "springgreen4"
+)
+
+# Extend the original palette to match the number of genes
+gene_cols <- setNames(
+  colorRampPalette(base_gene_colors)(length(genes)),
+  genes
+)
+# ============================================================
+# Create gene colors
+# ============================================================
+
+# ============================================================
+# Prepare colors
+# ============================================================
+
+genes <- sort(unique(na.omit(d.sum_all$Gene)))
+
+base_gene_colors <- c(
+  "#EA4691",
+  "chartreuse4",
+  "#26194C",
+  "goldenrod",
+  "#BFE75D",
+  "#662341",
+  "firebrick",
+  "tomato",
+  "#39FDA4",
+  "maroon",
+  "darkorchid1",
+  "#239A9E",
+  "#38A2B9",
+  "cornflowerblue",
+  "lightslateblue",
+  "blue",
+  "cyan",
+  "deepskyblue",
+  "turquoise",
+  "red",
+  "springgreen4"
+)
+
+# Extend the original palette for all genes
+gene_cols <- setNames(
+  colorRampPalette(base_gene_colors)(length(genes)),
+  genes
+)
+
+
+# ============================================================
+# Data containing only detected genes/functions
+# ============================================================
+
+plot_data <- d.sum_all %>%
+  filter(
+    !is.na(Function),
+    !is.na(Gene)
+  ) %>%
+  mutate(
+    Function = droplevels(Function)
+  )
+
+
+# ============================================================
+# Make the plot
+# ============================================================
+
+p <- ggplot() +
+
+  # Keep every bacterial species on the y-axis,
+  # including bacteria with no detected function
+  geom_blank(
+    data = d.sum_all,
+    aes(
+      x = factor(
+        "N decomposition",
+        levels = levels(d.sum_all$Function)
+      ),
+      y = Species
+    )
+  ) +
+
+  # Add grid lines behind the points
+  geom_vline(
+    xintercept = seq(
+      1.5,
+      length(levels(plot_data$Function)) - 0.5,
+      by = 1
+    ),
+    linewidth = 0.3,
+    color = "gray90"
+  ) +
+
+  geom_hline(
+    yintercept = seq(
+      1.5,
+      length(levels(d.sum_all$Species)) - 0.5,
+      by = 1
+    ),
+    linewidth = 0.3,
+    color = "gray90"
+  ) +
+
+  # Add gene points
+  geom_beeswarm(
+    data = plot_data,
+    aes(
+      x = Function,
+      y = Species,
+      color = Gene
+    ),
+    size = 3,
+    alpha = 0.7,
+    cex = 1.3
+  ) +
+
+  scale_color_manual(
+    values = gene_cols,
+    breaks = genes,
+    na.translate = FALSE
+  ) +
+
+  # Make long function names easier to read
+  scale_x_discrete(
+    drop = TRUE,
+    labels = function(x) stringr::str_wrap(x, width = 15)
+  ) +
+
+  guides(
+    color = guide_legend(
+      ncol = 2,
+      byrow = TRUE,
+      override.aes = list(
+        size = 3,
+        alpha = 1
+      )
+    )
+  ) +
+
+  theme_classic() +
+
+  theme(
+    axis.line = element_line(
+      colour = "black"
+    ),
+
+    axis.text.x = element_text(
+      color = "black",
+      size = 10,
+      face = "bold",
+      angle = 35,
+      hjust = 1,
+      vjust = 1
+    ),
+
+    axis.text.y = element_text(
+      color = "black",
+      size = 10
+    ),
+
+    axis.title.x = element_blank(),
+
+    axis.title.y = element_blank(),
+
+    legend.title = element_blank(),
+
+    legend.key = element_blank(),
+
+    legend.position = "right",
+
+    legend.text = element_text(
+      size = 9
+    ),
+
+    legend.spacing.y = unit(
+      0.1,
+      "cm"
+    ),
+
+    plot.margin = margin(
+      t = 10,
+      r = 10,
+      b = 20,
+      l = 10
+    )
+  )
+
+p
+```
+
+
