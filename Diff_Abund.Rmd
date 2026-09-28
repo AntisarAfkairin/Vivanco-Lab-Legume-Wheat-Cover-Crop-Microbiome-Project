@@ -1,0 +1,346 @@
+---
+title: "Diff_Abund"
+author: "MM & AA"
+date: "2026-09-28"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(ggbeeswarm) 
+library(readxl) 
+library(phyloseq) 
+library(tidyverse) 
+library(patchwork) 
+```
+
+```{r}
+kegg <- read_excel('EMU_database.GIBBs.KO.PICRUST2.xlsx', sheet='EMU_database.GIBBs.PICRUSt2', range='B9:BE17565')
+kegg <- kegg %>%
+  mutate_if(is.numeric, replace_na, replace=0)
+
+
+P.count <- readRDS("../Data/P.count.RDS")
+colnames(tax_table(P.count)) <- c('Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species')
+
+
+P.low <- subset_samples(P.count, Density != "H")
+
+P.anhigh <- subset_samples(P.count,  Density != "L" & Species == "An")
+
+P.lownoan <- subset_samples(P.count,  Species != "An")
+P.high <- merge_phyloseq(P.anhigh, P.lownoan)
+
+```
+
+
+# Low
+## No Reincorporation 
+
+# CK VS Cal5
+
+```{r}
+P.none <- subset_samples(P.low, Condition == "N" | Condition == "CK")
+
+out.glom <- microbiomeMarker::run_deseq2(
+  P.none, #df
+  group =  "Species", #treatment we want to compare
+  taxa_rank = "Species", #taxa level for comparison (e.g., genus)
+  norm="RLE", #how we normalize. RLE=Relative log expression
+  transform="identity", #dont transform
+  p_adjust='fdr', #FDR p adjustment
+  contrast =c("CK", "Cal"), #what levels in our trt to compare
+  pvalue_cutoff=0.05) #what p values to include in your output
+
+d.CK_cal <- data.frame(microbiomeMarker::marker_table(out.glom)) %>% 
+   mutate(., Contrast = "CK_Cal") %>% 
+   mutate(., Reinc = "None")
+```
+
+# CK VS Val
+```{r}
+
+out.glom <- microbiomeMarker::run_deseq2(
+  P.none,
+  group =  "Species",
+  taxa_rank = "Species",
+  norm="RLE",
+  transform="identity",
+  p_adjust='fdr',
+  contrast =c("CK", "Va"),
+  pvalue_cutoff=0.05)
+
+ d.CK_va <- data.frame(microbiomeMarker::marker_table(out.glom)) %>% 
+   mutate(., Contrast = "CK_Va")%>% 
+   mutate(., Reinc = "None")
+```
+
+# CK VS An
+
+```{r}
+out.glom <- microbiomeMarker::run_deseq2(
+  P.none,
+  group =  "Species",
+  taxa_rank = "Species",
+  norm="RLE",
+  transform="identity",
+  p_adjust='fdr',
+  contrast =c("CK", "An"),
+  pvalue_cutoff=0.05)
+
+ d.ck_an <- data.frame(microbiomeMarker::marker_table(out.glom)) %>% 
+   mutate(., Contrast = "CK_An")%>% 
+   mutate(., Reinc = "None")
+ 
+```
+
+
+### Merge none df
+```{r}
+
+d.none <- rbind(d.CK_cal, d.CK_va, d.ck_an)
+
+```
+
+
+## Root Reincorporation 
+
+### Ck vs Cal
+
+```{r}
+P.root <- subset_samples(P.low, Condition == "R" | Condition == "CK")
+
+
+out.glom <- microbiomeMarker::run_deseq2(
+  P.root,
+  group =  "Species",
+  taxa_rank = "Species",
+  norm="RLE",
+  transform="identity",
+  p_adjust='fdr',
+  contrast =c("CK", "Cal"),
+  pvalue_cutoff=0.05)
+
+d.CK_cal <- data.frame(microbiomeMarker::marker_table(out.glom)) %>% 
+   mutate(., Contrast = "CK_Cal") %>% 
+   mutate(., Reinc = "Root")
+```
+
+
+### CK vs Val
+
+```{r}
+out.glom <- microbiomeMarker::run_deseq2(
+  P.root,
+  group =  "Species",
+  taxa_rank = "Species",
+  norm="RLE",
+  transform="identity",
+  p_adjust='fdr',
+  contrast =c("CK", "Va"),
+  pvalue_cutoff=0.05)
+
+ d.CK_va <- data.frame(microbiomeMarker::marker_table(out.glom)) %>% 
+   mutate(., Contrast = "CK_Va")%>% 
+   mutate(., Reinc = "Root")
+```
+
+
+### Ck vs An
+
+```{r}
+out.glom <- microbiomeMarker::run_deseq2(
+  P.root,
+  group =  "Species",
+  taxa_rank = "Species",
+  norm="RLE",
+  transform="identity",
+  p_adjust='fdr',
+  contrast =c("CK", "An"),
+  pvalue_cutoff=0.05)
+
+ d.CK_an <- data.frame(microbiomeMarker::marker_table(out.glom)) %>% 
+   mutate(., Contrast = "CK_An")%>% 
+   mutate(., Reinc = "Root")
+```
+
+### Merge root df
+```{r}
+
+d.root <- rbind(d.CK_cal, d.CK_va, d.CK_an)
+
+```
+
+
+## Shoot-Root Reincorporation 
+
+### Ck vs Cal
+
+```{r}
+P.sr <- subset_samples(P.low, Condition == "SR" | Condition == "CK")
+
+
+out.glom <- microbiomeMarker::run_deseq2(
+  P.sr,
+  group =  "Species",
+  taxa_rank = "Species",
+  norm="RLE",
+  transform="identity",
+  p_adjust='fdr',
+  contrast =c("CK", "Cal"),
+  pvalue_cutoff=0.05)
+
+d.ck_cal <- data.frame(microbiomeMarker::marker_table(out.glom)) %>% 
+   mutate(., Contrast = "CK_Cal") %>% 
+   mutate(., Reinc = "Shoot_Root")
+```
+
+
+### CK vs - Val
+
+```{r}
+out.glom <- microbiomeMarker::run_deseq2(
+  P.sr,
+  group =  "Species",
+  taxa_rank = "Species",
+  norm="RLE",
+  transform="identity",
+  p_adjust='fdr',
+  contrast =c("CK", "Va"),
+  pvalue_cutoff=0.05)
+
+ d.ck_va <- data.frame(microbiomeMarker::marker_table(out.glom)) %>% 
+   mutate(., Contrast = "CK_Va")%>% 
+   mutate(., Reinc = "Shoot_Root")
+```
+
+
+### CK vs An
+
+```{r}
+out.glom <- microbiomeMarker::run_deseq2(
+  P.sr,
+  group =  "Species",
+  taxa_rank = "Species",
+  norm="RLE",
+  transform="identity",
+  p_adjust='fdr',
+  contrast =c("CK", "An"),
+  pvalue_cutoff=0.05)
+
+ d.ck_an <- data.frame(microbiomeMarker::marker_table(out.glom)) %>% 
+   mutate(., Contrast = "CK_An")%>% 
+   mutate(., Reinc = "Shoot_Root")
+```
+
+### Merge root df
+```{r}
+
+d.sr <- rbind(d.ck_cal, d.ck_va, d.ck_an)
+
+```
+
+## Merge df and make graph
+
+```{r}
+d.low <- rbind(d.sr,d.root,d.none)
+write.csv(d.low, "d.low-3.csv")
+```
+
+
+```{r,  fig 1}
+d.low <- d.low %>%
+mutate(Contrast = as_factor(Contrast)) %>%
+mutate(Contrast = fct_relevel(Contrast, "CK_An", "CK_Cal", "CK_Va"))
+d.low <- d.low %>%
+mutate(enrich_group = as_factor(enrich_group)) %>%
+mutate(enrich_group = fct_relevel(enrich_group, "CK", "An", "Cal", "Va"))
+
+x = tapply(d.low$ef_logFC, d.low$feature, function(x) max(x))
+x = sort(-x, TRUE)
+```
+
+#  Ck vs  all one fig 
+# Plot using jitter
+
+```{r,  fig 1}
+p <- ggplot() + geom_point(
+    data = d.low,
+    mapping = aes(
+      x = Contrast,
+      y = ef_logFC,
+      fill = enrich_group
+    ),
+    position = position_jitter(
+      width = 0.10,   # spread points slightly left/right
+      height = 0      # do NOT change their logFC value
+    ),
+    alpha = 0.45,
+    size = 4,
+    pch = 21
+  ) +
+
+  # Zero represents Control/reference
+  geom_hline(yintercept = 0,linewidth = 0.7, colour = "black") +
+
+  # Facets
+  facet_wrap( ~Reinc, ncol = 3) +
+
+# Colors
+  scale_fill_manual(
+    values = c(
+      "darkorchid3",
+      "firebrick3",
+      "goldenrod4",
+      "darkblue" ) ) +
+
+  # X-axis labels
+  scale_x_discrete(breaks = c( "CK_An", "CK_Cal", "CK_Va" ),labels = c( "Anasazi","California #5","Vail")) +
+
+  # Axis label
+  labs( y = "Log Fold Change") +
+
+  # Title
+  ggtitle("Low Density") +
+# Theme
+  theme(
+
+    # X-axis labels
+axis.text.x = element_text( vjust = 0.5, size = 11,
+      colour = "black",face = "bold"),
+# Y-axis numbers
+    axis.text.y = element_text(size = 10,colour = "black"),
+
+    # Y-axis title
+    axis.title.y = element_text( size = 15,face = "bold", colour = "black"),
+# Remove x-axis title
+axis.title.x = element_blank(),
+# Axis lines
+    axis.line = element_line( colour = "black"),
+# Remove grids
+panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+
+# Clean background
+panel.border = element_blank(),
+panel.background = element_blank(),
+
+# Facet headings
+strip.background = element_blank(),strip.text = element_text(size = 12,
+      face = "bold",colour = "black"),
+
+# Legend
+    legend.key = element_blank(),legend.text = element_text(size = 14
+    ), legend.title = element_blank(),
+
+# Plot title
+    plot.title = element_text(  size = 16,face = "bold"))
+
+# Show plot
+p
+
+# Save plot
+ggsave(plot = p,filename = "figs/lowdf.png",width = 10,height = 8)
+
+```
+
