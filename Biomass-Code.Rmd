@@ -46,6 +46,21 @@ table(d$Reinc, d$Legume_Var, d$Density)
 
 ```
 
+```{r}
+# Shoot Biomass
+mod <- lm(log(Shoot_g) ~ Legume_Var*Density*Reinc, data = d)
+par(mfrow=c(2,2))
+plot(mod)
+Anova(mod)
+
+## Root Biomass
+mod <- lm(log(Root_g) ~ Legume_Var*Density*Reinc, data = d.sub)
+par(mfrow=c(2,2))
+plot(mod)
+Anova(mod)
+```
+
+
 # NO REINCORPORATION
 
 ```{r}

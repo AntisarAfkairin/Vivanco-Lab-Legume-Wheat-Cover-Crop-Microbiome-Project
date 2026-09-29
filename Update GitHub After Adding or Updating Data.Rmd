@@ -1,0 +1,80 @@
+---
+title: "Update GitHub After Adding or Updating Data"
+author: "AA"
+date: "2026-09-28"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r}
+# Use this whenever you change your code
+
+# STEP 1 — See what changed.
+system("git status")
+
+system("git show --stat HEAD")
+
+# STEP 2 — Add .RData to .gitignore
+write(".RData", file = ".gitignore", append = TRUE)
+
+# Check the .gitignore
+readLines(".gitignore")
+
+# STEP 3 — Stage the updated files
+system("git add .")
+
+# STEP 4 — Check what is ready to upload
+system("git status")
+
+# STEP 5 — Commit the changes
+system('git commit -m "Update differential abundance analysis and data"')
+
+# STEP 6 — Push to GitHub
+system("git push origin main")
+
+# STEP 7 — Final check
+system("git status")
+
+# STEP 8 — Upload your new commit to GitHub
+system("git push origin main")
+
+system("git push")
+
+system("git status")
+
+# STEP 9 — Confirm GitHub is fully updated
+system("git status")
+
+
+system(paste0(
+  "git remote set-url origin ",
+  "https", "://github.com/AntisarAfkairin/",
+  "Vivanco-Lab-Legume-Wheat-Cover-Crop-Microbiome-Project.git"
+))
+
+system("git remote -v")
+system("git fetch origin")
+
+system("git log --oneline --all --decorate --graph -8")
+
+system("git pull origin main --no-rebase --no-edit")
+
+system("git status")
+cat(readLines("README.md"), sep = "\n")
+
+writeLines(
+  "# Vivanco Lab – Legume–Wheat Cover Crop Microbiome Project",
+  "README.md"
+)
+system("git add README.md")
+
+system("git status")
+
+system('git commit -m "Merge GitHub README update"')
+system("git status")
+
+system("git push")
+system("git status")
+
+```
+
